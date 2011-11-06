@@ -2,3 +2,6 @@
 *.log
 *.pyc
 *.db
+build
+dist
+apnsagent.egg-info

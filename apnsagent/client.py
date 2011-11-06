@@ -1,7 +1,7 @@
 #encoding=utf-8
 
 import redis
-from apnsagent import settings
+from apnsagent import constants
 try:
     import simplejson
 except:
@@ -17,7 +17,7 @@ class PushClient(object):
         - server_info 连接推送服务后端的信息
         """
         self.app_key = app_key
-        self.server_info = server_info #TODO 加上可配置的服务器信息
+        self.server_info = server_info 
         self.redis = redis.Redis()
 
     def register_token(self, token, user_id=None, develop=False):
@@ -30,7 +30,7 @@ class PushClient(object):
         - `develop`: 该token对应的推送环境，测试或生产
         """
         if develop:
-            self.redis.sadd('%s:%s' % (settings.DEBUG_TOKENS, self.app_key),
+            self.redis.sadd('%s:%s' % (constants.DEBUG_TOKENS, self.app_key),
                             token)
         #TODO 为用户ID和token加上关联。
 
@@ -42,13 +42,13 @@ class PushClient(object):
         - `self`:
         - `token`:
         """
-        is_develop = self.redis.sismember('%s:%s' % (settings.DEBUG_TOKENS,
+        is_develop = self.redis.sismember('%s:%s' % (constants.DEBUG_TOKENS,
                                                      self.app_key), token)
-        return ('%s:%s' % (settings.PUSH_JOB_CHANNEL_DEV, self.app_key),
-                '%s:%s' % (settings.PUSH_JOB_FALLBACK_DEV, self.app_key)) \
+        return ('%s:%s' % (constants.PUSH_JOB_CHANNEL_DEV, self.app_key),
+                '%s:%s' % (constants.PUSH_JOB_FALLBACK_DEV, self.app_key)) \
                 if is_develop else \
-                ('%s:%s' % (settings.PUSH_JOB_CHANNEL, self.app_key),
-                '%s:%s' % (settings.PUSH_JOB_FALLBACK, self.app_key))
+                ('%s:%s' % (constants.PUSH_JOB_CHANNEL, self.app_key),
+                '%s:%s' % (constants.PUSH_JOB_FALLBACK, self.app_key))
 
 
     def push(self, token=None, alert=None, badge=None,
@@ -80,8 +80,3 @@ class PushClient(object):
         clients = self.redis.publish(channel, payload)
         if not clients:
             self.redis.sadd(fallback_set, payload) #TODO 加上超时
-        
-        
-
-        
-        

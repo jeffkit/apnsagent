@@ -2,26 +2,25 @@
 import os
 import sys
 
-if os.getcwd() not in sys.path:
-    sys.path.append(os.getcwd())
-
 import traceback
-from apnsagent import settings
-from django.utils import simplejson
-from django.core.mail import send_mail
+try:
+    import simplejson
+except:
+    from django.utils import simplejson
 from apns import APNs,Payload
 from apns import PayloadTooLargeError
 from ssl import SSLError
 import socket
 import redis
 import time
-from logger import log
 
+from apnsagent import constants
+from apnsagent.logger import log
 
 
 class Notifier(object):
     def __init__(self, job='push', develop=False, app_key=None,
-                 cer_file=None, key_file=None):
+                 cer_file=None, key_file=None, server_info=None):
         """
         job = push | feedback
         develop,是否使用sandbox服务器，调试时设为True
@@ -38,6 +37,15 @@ class Notifier(object):
 
         self.apns = APNs(use_sandbox=self.develop,
                          cert_file=self.cert_file, key_file=self.key_file)
+        if server_info:
+            self.server_info = server_info
+        else:
+            self.server_info = {
+                'host': '127.0.0.1',
+                'post': 6379,
+                'db': 0,
+                'password': ''
+                }
 
     def run(self):
         """
@@ -45,9 +53,7 @@ class Notifier(object):
         - 从apns获取feedback service，处理无效token
         """
         if self.job == 'push':
-            self.rds = redis.Redis(host=settings.REDIS_HOST,
-                                   port=settings.REDIS_PORT,
-                                   db=settings.REDIS_DATABASE)
+            self.rds = redis.Redis(**self.server_info)
             self.push()
         elif self.job == 'feedback':
             self.feedback()
@@ -58,9 +64,6 @@ class Notifier(object):
         error_message = traceback.format_exception(type,value,tb)
         log.debug(type)
         log.error(error_message)
-        send_mail('message push fail by %s exception' % str(type),
-                  error_message, 'techparty.org@gmail.com', ['bbmyth@gmail.com'],
-                  fail_silently=True)
 
     def send_message(self,message):
         """
@@ -93,7 +96,12 @@ class Notifier(object):
                                   sound=sound, badge=badge)
         except PayloadTooLargeError, e:
             payload = Payload(badge=badge)
-        
+
+        if self.rds.sismember('%s:%s' % (constants.INVALID_TOKENS,
+                                             self.app_key),
+                                  real_message['token']):
+            # the token is invalid,do nothing
+            return 
         log.debug('will sent a meesage to token %s',real_message['token'])
         self.apns.gateway_server.send_notification(real_message['token'],payload)
 
@@ -111,12 +119,12 @@ class Notifier(object):
         监听消息队列，获取推送请求，推送消息到客户端
         """
         #先处理fallback里面留下来的消息，理论上那里的数据不会很多
-        fallback = settings.PUSH_JOB_FALLBACK_DEV \
+        fallback = constants.PUSH_JOB_FALLBACK_DEV \
                   if self.develop else \
-                  settings.PUSH_JOB_FALLBACK
-        channel = settings.PUSH_JOB_CHANNEL_DEV \
+                  constants.PUSH_JOB_FALLBACK
+        channel = constants.PUSH_JOB_CHANNEL_DEV \
                   if self.develop else \
-                  settings.PUSH_JOB_CHANNEL
+                  constants.PUSH_JOB_CHANNEL
         
         log.debug('handle fallback messages')
         old_msg = self.rds.spop('%s:%s' % (fallback, self.app_key))
@@ -147,17 +155,10 @@ class Notifier(object):
             try:
                 for (token,fail_time) in self.apns.feedback_server.items():
                     log.debug('push message fail to send to %s.'%token)
-                    #TODO 清除不再有效的Token
+                    self.rds.sadd('%s:%s' % (constants.INVALID_TOKENS,
+                                             self.app_key),
+                                  token)
             except:
                 self.log_error()
                 self.reconnect()
             time.sleep(10)
-
-
-if __name__ == '__main__':
-    if len(sys.argv) >= 2:
-        notifier = Notifier(job=sys.argv[1])
-    else:
-        notifier = Notifier()
-    notifier.run()
-

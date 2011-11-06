@@ -1,7 +1,12 @@
+project: apnsagent
+license: BSD
+auth   : jeffkit
+
 apnsagent为多个iOS 应用提供集中式的推送服务，她有以下特点：
 - 接入简单，可以同时服务于多个App
 - 无缝支持开发和生产模式的推送
-- 使用队列的异步发送，API调用效率高
+- 重用TCP连接，同时使用队列的异步发送，API调用效率高
+- 自动忽略失效的Token
 
 apnsagent的程序包括：
 - 服务程序，它部署在你的Server上，仅运行一个实例，同时服务于多个应用
@@ -18,16 +23,29 @@ apnsagent的程序包括：
                - develop            # 开发环境证书，下同
                     - cer.pem     
                     - key.pem
+- 安装apnsagent:
+  cd $apnsagent-home
+  python setup.py install (或使用pip安装)
+- 运行服务
+  apnsagent-server.py config [options] 
+  - config 服务器配置文件，下面是一个Sample，看一下就明白
+  [app]
+  app_dir = /Users/jeff/local/apps/  
 
-- 然后，修改apnsagent.settings.py文件，将APP_DIR变量指向上一步的目录
-- 启动服务 python apnsagent/guard.py start 
+  [redis]
+  host = 127.0.0.1
+  port = 6379
+  db = 0
+  password = ''
+  使用apnsagent-server.py -h 获得更多帮助。
 
 客户端API使用示例：
+from apnsagent.client import PushClient
 client = PushClient(app_key) # 初始化一个推送客户端。
 client.register_token(token,develop=True) # 可选，注册一个Token，不注册默认发到生产队列当中。
 client.push(alert,token,badge,sound,custom) # 发送一条推送消息。
 
 工程依赖
-- pyAPNS
+- apns
 - redis
 - simplejson
