@@ -1,3 +1,7 @@
+project: apnsagent
+license: BSD
+auth   : jeffkit
+
 apnsagent为多个iOS 应用提供集中式的推送服务，她有以下特点：
 - 接入简单，可以同时服务于多个App
 - 无缝支持开发和生产模式的推送
