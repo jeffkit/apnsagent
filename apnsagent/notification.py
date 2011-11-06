@@ -3,7 +3,6 @@ import os
 import sys
 
 import traceback
-from apnsagent import constants
 try:
     import simplejson
 except:
@@ -14,8 +13,9 @@ from ssl import SSLError
 import socket
 import redis
 import time
-from logger import log
 
+from apnsagent import constants
+from apnsagent.logger import log
 
 
 class Notifier(object):
@@ -53,7 +53,7 @@ class Notifier(object):
         - 从apns获取feedback service，处理无效token
         """
         if self.job == 'push':
-            self.rds = redis.Redis(**self.server_info)                              
+            self.rds = redis.Redis(**self.server_info)
             self.push()
         elif self.job == 'feedback':
             self.feedback()
@@ -96,7 +96,12 @@ class Notifier(object):
                                   sound=sound, badge=badge)
         except PayloadTooLargeError, e:
             payload = Payload(badge=badge)
-        
+
+        if self.rds.sismember('%s:%s' % (constants.INVALID_TOKENS,
+                                             self.app_key),
+                                  real_message['token']):
+            # the token is invalid,do nothing
+            return 
         log.debug('will sent a meesage to token %s',real_message['token'])
         self.apns.gateway_server.send_notification(real_message['token'],payload)
 
@@ -150,17 +155,10 @@ class Notifier(object):
             try:
                 for (token,fail_time) in self.apns.feedback_server.items():
                     log.debug('push message fail to send to %s.'%token)
-                    #TODO 清除不再有效的Token
+                    self.rds.sadd('%s:%s' % (constants.INVALID_TOKENS,
+                                             self.app_key),
+                                  token)
             except:
                 self.log_error()
                 self.reconnect()
             time.sleep(10)
-
-
-if __name__ == '__main__':
-    if len(sys.argv) >= 2:
-        notifier = Notifier(job=sys.argv[1])
-    else:
-        notifier = Notifier()
-    notifier.run()
-

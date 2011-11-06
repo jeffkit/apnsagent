@@ -9,12 +9,13 @@ if os.getcwd() not in sys.path:
     sys.path.append(os.getcwd())
 
 import threading
-from logger import log
 from optparse import OptionParser
 from ConfigParser import ConfigParser
 
-from apnsagent.notification import Notifier
+from apnsagent import *
 from apnsagent.constants import *
+from apnsagent.notification import *
+from apnsagent.logger import log,create_log
 
 class PushGuard(object):
     """推送服务的主程序，主要职责:
@@ -44,22 +45,19 @@ class PushGuard(object):
         for app in apps:
             # 文件夹下面会有production,develop两个子目录，分别放不同的Key及Cert
             # 文件
-            print app
+            log.debug('getting ready for app : %s' % app)
             if os.path.exists(os.path.join(self.app_dir, app, DEVELOP_DIR)):
-                print 'handle develop cert and keys'
                 self.make_worker_threads(app, develop=True)
             if os.path.exists(os.path.join(self.app_dir, app, PRODUCTION_DIR)):
-                print 'handle production cert and keys'
                 self.make_worker_threads(app)
 
         #TODO 启动一条监控的线程,允许动态增加推送应用及移除推送应用。使用
         #inotify或队列来实现监听变动。inotify或许不错哦。
         
-        print 'just wait here,there are %d threads ' % len(self.threads)
+        log.debug('just wait here,there are %d threads ' % len(self.threads))
 
         while True:
             time.sleep(10)
-            print '%d threads left' % threading.active_count()
 
 
     def make_worker_threads(self, app, develop=False):
@@ -117,7 +115,13 @@ def execute():
                       help="Redis database")
     parser.add_option("-a", "--password", dest="password", default="",
                       help="Redis password")
+    parser.add_option("-l", "--log", dest="log",
+                      help="log file")
     (options, args) = parser.parse_args(sys.argv)
+    if options.log:
+        create_log(options.log)
+    else:
+        create_log()
 
     if len(args) > 1:
         config = ConfigParser()
