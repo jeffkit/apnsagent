@@ -11,7 +11,7 @@ class PushClient(object):
     """推送服务的客户端，负责把消息扔进推送主队列即可。
     """
     
-    def __init__(self, app_key, server_info=None):
+    def __init__(self, app_key, server_info={}):
         """建立推送客户端。
         - app_key 客户端的app_key,前期为局域网内部的服务，暂不作有效性检测。
         - server_info 连接推送服务后端的信息
@@ -31,6 +31,13 @@ class PushClient(object):
         if develop:
             self.redis.sadd('%s:%s' % (constants.DEBUG_TOKENS, self.app_key),
                             token)
+        # 检查token是否在黑名单里，如果在，则从黑名释放出来
+        if self.redis.sismember('%s:%s' % (constants.INVALID_TOKENS,
+                                           self.app_key), token):
+            self.redis.srem('%s:%s' % (constants.INVALID_TOKENS,
+                                       self.app_key), token)
+                                
+                                    
         #TODO 为用户ID和token加上关联。
 
 
