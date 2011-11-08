@@ -17,8 +17,7 @@ class PushClient(object):
         - server_info 连接推送服务后端的信息
         """
         self.app_key = app_key
-        self.server_info = server_info 
-        self.redis = redis.Redis()
+        self.redis = redis.Redis(**server_info)
 
     def register_token(self, token, user_id=None, develop=False):
         """添加Token到服务器，并标识是何种类型的，测试或生产
