@@ -69,7 +69,7 @@ class PushClient(object):
         if alert:
             d['alert'] = alert
         if badge:
-            d['badge'] = bdage
+            d['badge'] = badge
         if sound:
             d['sound'] = sound
         if custom:
