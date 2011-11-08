@@ -12,7 +12,7 @@
 
 PATH=/usr/local/bin:/sbin:/bin:/usr/sbin:/usr/bin
 NAME=apnsagent
-DAEMON=apnsagent-server.py
+DAEMON=/usr/local/bin/apnsagent-server.py
 DESC=apnsagent
 
 OWNER=apns
@@ -26,7 +26,7 @@ DAEMON_OPTS="/opt/config/apnsagent/conf"
 case "$1" in
   start)
         echo -n "Starting $DESC: "
-	start-stop-daemon --start --chuid $OWNER:$OWNER --user $OWNER \
+	start-stop-daemon --start --background --chuid $OWNER:$OWNER --user $OWNER \
 		--exec $DAEMON -- $DAEMON_OPTS
 	echo "$NAME."
 	;;
