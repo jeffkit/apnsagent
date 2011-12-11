@@ -1,5 +1,4 @@
 #encoding=utf-8
-import os
 import sys
 
 import traceback
@@ -52,8 +51,8 @@ class Notifier(object):
         - 监听redis队列，发送push消息
         - 从apns获取feedback service，处理无效token
         """
+        self.rds = redis.Redis(**self.server_info)
         if self.job == 'push':
-            self.rds = redis.Redis(**self.server_info)
             self.push()
         elif self.job == 'feedback':
             self.feedback()
@@ -94,7 +93,7 @@ class Notifier(object):
             else:
                 payload = Payload(alert=real_message['alert'],
                                   sound=sound, badge=badge)
-        except PayloadTooLargeError, e:
+        except PayloadTooLargeError:
             payload = Payload(badge=badge)
 
         if self.rds.sismember('%s:%s' % (constants.INVALID_TOKENS,
