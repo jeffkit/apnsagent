@@ -56,13 +56,13 @@ class PushClient(object):
                 ('%s:%s' % (constants.PUSH_JOB_CHANNEL, self.app_key),
                 '%s:%s' % (constants.PUSH_JOB_FALLBACK, self.app_key))
 
-    def sent_message_count(self) :
+    def sent_message_count(self) :  # XXX
         return self.redis.hget("counter",app_key)
 
-    def debug_tokens(self):
+    def debug_tokens(self):  # XXX
         return self.redis.smembers('%s:%s' % (constants.DEBUG_TOKENS,self.app_key))
 
-    def invalid_tokens(self):
+    def invalid_tokens(self):  # XXX
         return self.redis.smembers('%s:%s' % (constants.INVALID_TOKENS,who))
 
 
@@ -96,6 +96,8 @@ class PushClient(object):
         if not clients:
             self.redis.sadd(fallback_set, payload) #TODO 加上超时
 
+
+    # XXX
     def push_batch(self,tokens,alert):
         """push message in batch
         """
@@ -121,3 +123,4 @@ class PushClient(object):
         """
         pass
 
+        # XXX

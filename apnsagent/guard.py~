@@ -39,8 +39,7 @@ class PushGuard(object):
         self.app_dir = app_dir
         self.server_info = server_info
 
-        
-        self.rds = redis.Redis(**self.server_info)
+        self.rds = redis.Redis() # XXX
 
         self.threads = {}
         self.notifiers = {}
