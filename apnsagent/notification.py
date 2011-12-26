@@ -52,8 +52,8 @@ class Notifier(object):
         - 监听redis队列，发送push消息
         - 从apns获取feedback service，处理无效token
         """
+        self.rds = redis.Redis(**self.server_info)
         if self.job == 'push':
-            self.rds = redis.Redis(**self.server_info)
             self.push()
         elif self.job == 'feedback':
             self.feedback()
