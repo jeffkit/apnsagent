@@ -55,6 +55,17 @@ class PushClient(object):
                 ('%s:%s' % (constants.PUSH_JOB_CHANNEL, self.app_key),
                 '%s:%s' % (constants.PUSH_JOB_FALLBACK, self.app_key))
 
+    def sent_message_count(self):
+        return self.redis.hget("counter", self.app_key)
+
+    def debug_tokens(self):
+        return self.redis.smembers('%s:%s' % (constants.DEBUG_TOKENS,
+                                              self.app_key))
+
+    def invalid_tokens(self):
+        return self.redis.smembers('%s:%s' % (constants.INVALID_TOKENS,
+                                              self.app_key))
+
     def push(self, token=None, alert=None, badge=None,
              sound=None, custom=None):
         """向推送服务发起推送消息。
@@ -82,3 +93,29 @@ class PushClient(object):
         clients = self.redis.publish(channel, payload)
         if not clients:
             self.redis.sadd(fallback_set, payload)  # TODO 加上超时
+
+    def push_batch(self, tokens, alert):
+        """push message in batch
+        """
+        token = tokens[0]
+        channel, fallback_set = self.get_target(token)
+
+        for tk in tokens:
+            d = {'token': tk}
+            if alert:
+                d['alert'] = alert
+            payload = simplejson.dumps(d)
+
+            clients = self.redis.publish(channel, payload)
+            if not clients:
+                self.redis.sadd(fallback_set, payload)  # TODO 加上超时
+
+    def stop(self):
+        self.redis.publish("app_watcher",
+                           simplejson.dumps({'op': 'stop',
+                                             'app_key': self.app_key}))
+
+    def valid(self):
+        """valid app_key
+        """
+        pass

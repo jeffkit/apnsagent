@@ -1,5 +1,4 @@
 #encoding=utf-8
-import os
 import sys
 
 import traceback
@@ -7,7 +6,7 @@ try:
     import simplejson
 except:
     from django.utils import simplejson
-from apns import APNs,Payload
+from apns import APNs, Payload
 from apns import PayloadTooLargeError
 from ssl import SSLError
 import socket
@@ -27,13 +26,14 @@ class Notifier(object):
         app_key,使用推送服务的应用唯一标识，格式建议为com.company.appname
         cert_file,该应用的推送证书，PEM格式
         key_file,该应用的密钥，PEM格式，要求去掉passphase
-        
         """
         self.job = job
         self.develop = develop
         self.app_key = app_key
         self.cert_file = cer_file
         self.key_file = key_file
+
+        self.alive = True
 
         self.apns = APNs(use_sandbox=self.develop,
                          cert_file=self.cert_file, key_file=self.key_file)
@@ -60,19 +60,20 @@ class Notifier(object):
 
     def log_error(self):
         log.error('message push fail')
-        type,value,tb = sys.exc_info()
-        error_message = traceback.format_exception(type,value,tb)
+        type, value, tb = sys.exc_info()
+        error_message = traceback.format_exception(type, value, tb)
         log.debug(type)
         log.error(error_message)
 
-    def send_message(self,message):
+    def send_message(self, message):
         """
         发送消息，如果发生异常失败，重新连接再试一次，再失败则丢失
         """
         log.debug('get a message from channel')
         log.debug(message)
         try:
-            if message['type'] != 'message':return
+            if message['type'] != 'message':
+                return
             self._send_message(message)
         except SSLError:
             self.log_error()
@@ -83,36 +84,39 @@ class Notifier(object):
         except:
             self.log_error()
 
-    def _send_message(self,message):
+    def _send_message(self, message):
         real_message = simplejson.loads(message['data'])
         badge = real_message.get('badge', None)
         sound = real_message.get('sound', None)
         try:
-            if real_message.get('custom',None):
-                payload = Payload(alert=real_message['alert'], sound=sound,
-                                  custom=real_message['custom'],badge=badge)
+            if real_message.get('custom', None):
+                payload = Payload(alert=real_message.get('alert', None),
+                                  sound=sound, badge=badge,
+                                  custom=real_message['custom'])
             else:
-                payload = Payload(alert=real_message['alert'],
+                payload = Payload(alert=real_message.get('alert', None),
                                   sound=sound, badge=badge)
-        except PayloadTooLargeError, e:
+        except PayloadTooLargeError:
             payload = Payload(badge=badge)
 
         if self.rds.sismember('%s:%s' % (constants.INVALID_TOKENS,
                                              self.app_key),
                                   real_message['token']):
             # the token is invalid,do nothing
-            return 
-        log.debug('will sent a meesage to token %s',real_message['token'])
-        self.apns.gateway_server.send_notification(real_message['token'],payload)
+            return
+        self.rds.hincrby("counter", self.app_key)
+        log.debug('will sent a meesage to token %s', real_message['token'])
+        self.apns.gateway_server.send_notification(real_message['token'],
+                                                   payload)
 
-    def resend(self,message):
+    def resend(self, message):
         log.debug('resending')
         self.reconnect()
         self._send_message(message)
 
-
     def reconnect(self):
-        self.apns = APNs(use_sandbox=self.develop, cert_file=self.cert_file, key_file=self.key_file)
+        self.apns = APNs(use_sandbox=self.develop,
+                         cert_file=self.cert_file, key_file=self.key_file)
 
     def push(self):
         """
@@ -125,14 +129,14 @@ class Notifier(object):
         channel = constants.PUSH_JOB_CHANNEL_DEV \
                   if self.develop else \
                   constants.PUSH_JOB_CHANNEL
-        
+
         log.debug('handle fallback messages')
         old_msg = self.rds.spop('%s:%s' % (fallback, self.app_key))
         while(old_msg):
-            log.debug('handle message:%s'%old_msg)
+            log.debug('handle message:%s' % old_msg)
             try:
                 simplejson.loads(old_msg)
-                self.send_message({'type': 'message','data': old_msg})
+                self.send_message({'type': 'message', 'data': old_msg})
             except:
                 log.debug('message is not a json object')
             finally:
@@ -144,8 +148,9 @@ class Notifier(object):
         log.debug('subscribe push job channel successfully')
         redis_channel = pubsub.listen()
         for message in redis_channel:
+            if not self.alive:
+                break
             self.send_message(message)
-
 
     def feedback(self):
         """
@@ -153,8 +158,8 @@ class Notifier(object):
         """
         while(True):
             try:
-                for (token,fail_time) in self.apns.feedback_server.items():
-                    log.debug('push message fail to send to %s.'%token)
+                for (token, fail_time) in self.apns.feedback_server.items():
+                    log.debug('push message fail to send to %s.' % token)
                     self.rds.sadd('%s:%s' % (constants.INVALID_TOKENS,
                                              self.app_key),
                                   token)
