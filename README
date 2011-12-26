@@ -43,7 +43,7 @@ apnsagent的程序包括：
 from apnsagent.client import PushClient
 client = PushClient(app_key) # 初始化一个推送客户端。
 client.register_token(token,develop=True) # 可选，注册一个Token，不注册默认发到生产队列当中。
-client.push(alert,token,badge,sound,custom) # 发送一条推送消息。
+client.push(token,alert,badge,sound,custom) # 发送一条推送消息。
 
 工程依赖
 - apns
