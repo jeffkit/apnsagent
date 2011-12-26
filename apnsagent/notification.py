@@ -35,6 +35,8 @@ class Notifier(object):
         self.cert_file = cer_file
         self.key_file = key_file
 
+        self.alive =    True
+
         self.apns = APNs(use_sandbox=self.develop,
                          cert_file=self.cert_file, key_file=self.key_file)
         if server_info:
@@ -89,10 +91,10 @@ class Notifier(object):
         sound = real_message.get('sound', None)
         try:
             if real_message.get('custom',None):
-                payload = Payload(alert=real_message['alert'], sound=sound,
+                payload = Payload(alert=real_message.get('alert',None), sound=sound,
                                   custom=real_message['custom'],badge=badge)
             else:
-                payload = Payload(alert=real_message['alert'],
+                payload = Payload(alert=real_message.get('alert',None),
                                   sound=sound, badge=badge)
         except PayloadTooLargeError, e:
             payload = Payload(badge=badge)
@@ -101,7 +103,8 @@ class Notifier(object):
                                              self.app_key),
                                   real_message['token']):
             # the token is invalid,do nothing
-            return 
+            return
+        self.rds.hincrby("counter",self.app_key) # XXX
         log.debug('will sent a meesage to token %s',real_message['token'])
         self.apns.gateway_server.send_notification(real_message['token'],payload)
 
@@ -144,6 +147,8 @@ class Notifier(object):
         log.debug('subscribe push job channel successfully')
         redis_channel = pubsub.listen()
         for message in redis_channel:
+            if not self.alive:
+                break
             self.send_message(message)
 
 
