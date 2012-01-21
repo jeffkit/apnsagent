@@ -2,6 +2,7 @@
 *.log
 *.pyc
 *.db
+*.rdb
 build
 dist
 apnsagent.egg-info
