@@ -53,7 +53,7 @@ class Notifier(object):
         self.alive = True
 
         self.last_sent_time = datetime.now()
-        self.trim_alerts = {}
+
         self.apns = APNs(use_sandbox=self.develop,
                          cert_file=self.cert_file, key_file=self.key_file)
         if server_info:
