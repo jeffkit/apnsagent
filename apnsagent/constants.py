@@ -11,3 +11,6 @@ PUSH_JOB_CHANNEL_DEV = 'push_job_dev'
 PUSH_JOB_FALLBACK_DEV = 'push_job_fallback_dev'
 DEBUG_TOKENS = 'debug_tokens'
 INVALID_TOKENS = 'invalid_tokens'
+
+USERNAME = 'apns'
+PASSWORD = '12345'

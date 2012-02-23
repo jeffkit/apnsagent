@@ -1,7 +1,7 @@
 #encoding=utf-8
 
 import redis
-from apnsagent import constants
+import constants
 try:
     import simplejson
 except:
@@ -113,6 +113,11 @@ class PushClient(object):
     def stop(self):
         self.redis.publish("app_watcher",
                            simplejson.dumps({'op': 'stop',
+                                             'app_key': self.app_key}))
+
+    def start(self):
+        self.redis.publish("app_watcher",
+                           simplejson.dumps({'op': 'start',
                                              'app_key': self.app_key}))
 
     def valid(self):

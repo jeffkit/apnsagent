@@ -12,11 +12,11 @@ import threading
 from optparse import OptionParser
 from ConfigParser import ConfigParser
 
-
+from utils import *
 from constants import *
 from notification import *
 from logger import log, create_log
-from web_daemon import *
+from webserver import *
 
 import simplejson
 
@@ -41,77 +41,92 @@ class PushGuard(object):
 
         self.rds = redis.Redis(**self.server_info)
 
-        self.threads = {}
+        #self.threads = {}
         self.notifiers = {}
 
     def run(self):
         """读取一个目录，遍历下面的app文件夹，每个app启动一到两条线程对此提供服
         务,一条用来发推送，一条用来收feedback
         """
-        apps = [app for app in os.listdir(self.app_dir)
-                if os.path.isdir(os.path.join(self.app_dir, app))]
-
+        apps = get_apps(self.app_dir)
+        self.app_info = {}
+        
+        # 文件夹下面会有production,develop两个子目录，分别放不同的Key及Cert
+        
         for app in apps:
-            # 文件夹下面会有production,develop两个子目录，分别放不同的Key及Cert
-            # 文件
             log.debug('getting ready for app : %s' % app)
-            if os.path.exists(os.path.join(self.app_dir, app, DEVELOP_DIR)):
-                self.make_worker_threads(app, develop=True)
-            if os.path.exists(os.path.join(self.app_dir, app, PRODUCTION_DIR)):
-                self.make_worker_threads(app)
-
+            app_info = get_app_info(self.app_dir,app)
+            self.app_info[app] = app_info
+            
+            if 'production' in app_info:
+                self.start_worker_thread(app, False,app_info['production']['cer_file'],app_info['production']['key_file'])
+                
+            if 'develop' in app_info:
+                self.start_worker_thread(app, True, app_info['develop']['cer_file'],app_info['develop']['key_file'])
+                
+            
         #TODO 启动一条监控的线程,允许动态增加推送应用及移除推送应用。使用
         #inotify或队列来实现监听变动。inotify或许不错哦。
 
-        start_web_daemon(self)
+        start_webserver(self)
         self.watch_app()
-        log.debug('just wait here,there are %d threads ' % len(self.threads))
+        log.debug('just wait here,there are %d threads ' % len(self.notifiers))
 
         while True:
             time.sleep(10)
 
-    def make_worker_threads(self, app, develop=False):
-        app_key = app
-        path = os.path.join(self.app_dir, app, DEVELOP_DIR) \
-               if develop else \
-               os.path.join(self.app_dir, app, PRODUCTION_DIR)
-        cer_file = os.path.join(path, CER_FILE)
-        key_file = os.path.join(path, KEY_FILE)
+    def start_worker(self,app):
+        log.debug('start an app : %s' % app)
+        app_info = get_app_info(self.app_dir,app)
 
-        if not (os.path.exists(cer_file) and os.path.exists(key_file)):
-            return
+        if 'production' in app_info:
+            self.start_worker_thread(app, False,app_info['production']['cer_file'],app_info['production']['key_file'])
+        if 'develop' in app_info:
+            self.start_worker_thread(app, True, app_info['develop']['cer_file'],app_info['develop']['key_file'])
+        
+
+
+
+    def start_worker_thread(self,app,dev,cer_file,key_file):
         kwargs = {
-            'develop': develop,
-            'app_key': app_key,
+            'develop': dev,
+            'app_key': app,
             'cer_file': cer_file,
             'key_file': key_file,
             'server_info': self.server_info
         }
-
+        
         push_job = threading.Thread(target=self.push, kwargs=kwargs)
         feedback_job = threading.Thread(target=self.feedback, kwargs=kwargs)
-
+        
         push_job.setDaemon(True)
         feedback_job.setDaemon(True)
-
+        
         push_job.start()
         feedback_job.start()
+        
+        
+    def stop_worker_thread(self, app_key):
 
-        self.threads[app_key + ":push"] = push_job
-        self.threads[app_key + ":feeedback"] = feedback_job
+        if (app_key + ":dev:push") in self.notifiers:
+            self.notifiers[app_key + ":dev:push"].alive = False
+            self.rds.publish('push_job_dev:%s' % app_key,'kill')
+            del self.notifiers[app_key + ":dev:push"]
 
-    def stop_worker_thread(self, app):
-        app_key = app
 
-        self.notifiers[app_key + ":push"].alive = False
-        self.notifiers[app_key + ":feeedback"].alive = False
+        if (app_key + ":dev:feedback") in self.notifiers:
+            self.notifiers[app_key + ":dev:feedback"].alive = False
+            del self.notifiers[app_key + ":dev:feedback"]
 
-        del self.threads[app_key + ":push"]
-        del self.threads[app_key + ":feeedback"]
+        
+        if (app_key + ":pro:push") in self.notifiers:
+            self.notifiers[app_key + ":pro:push"].alive = False
+            self.rds.publish('push_job:%s' % app_key,'kill')
+            del self.notifiers[app_key + ":pro:push"]
 
-    def change_worker_thread(self, develop=False):
-        self.stop_worker_thread(app)
-        self.make_worker_threads(app, develop)
+        if (app_key + ":pro:feedback") in self.notifiers:
+            self.notifiers[app_key + ":pro:feedback"].alive = False
+            del self.notifiers[app_key + ":pro:feedback"]
 
     def watch_app(self):
         self.watcher = threading.Thread(target=self.app_watcher)
@@ -123,26 +138,34 @@ class PushGuard(object):
         ps.subscribe("app_watcher")
         channel = ps.listen()
         for message in channel:
-            m = simplejson.loads(message["data"])
-            if(m["op"] == "stop"):
-                self.stop_worker_thread(m["app_key"])
+            msg = simplejson.loads(message["data"])
+            if(msg["op"] == "stop"):
+                self.stop_worker_thread(msg["app_key"])
+            elif(msg["op"] == "start"):
+                self.start_worker(msg["app_key"])
 
     def push(self, develop, app_key, cer_file, key_file, server_info):
         notifier = Notifier('push', develop, app_key,
                             cer_file, key_file, server_info)
-        self.notifiers[app_key + ":push"] = notifier   # XXX
+        if develop:
+            self.notifiers[app_key + ":dev:push"] = notifier
+        else:
+            self.notifiers[app_key + ":pro:push"] = notifier
         notifier.run()
 
     def feedback(self, develop, app_key, cer_file, key_file, server_info):
         notifier = Notifier('feedback', develop, app_key,
                             cer_file, key_file, server_info)
-        self.notifiers[app_key + ":feeedback"] = notifier   # XXX
+        if develop:
+            self.notifiers[app_key + ":dev:feedback"] = notifier
+        else:
+            self.notifiers[app_key + ":pro:feedback"] = notifier
         notifier.run()
 
 
 def execute():
     parser = OptionParser(usage="%prog config [options]")
-    parser.add_option("-f", "--folder", dest="app_dir",
+    parser.add_option("-f", "--folder", dest="app_dir", #default="apps",
                       help="folder where the certs and keys to stay")
     parser.add_option("-s", "--host", dest="host", default="127.0.0.1",
                       help="Redis host name or address")
@@ -180,3 +203,5 @@ def execute():
 
 if __name__ == '__main__':
     execute()
+
+
