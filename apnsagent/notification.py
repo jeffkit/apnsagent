@@ -14,8 +14,8 @@ import redis
 import time
 from datetime import datetime
 
-import constants
-from logger import log
+import apnsagent.constants
+from apnsagent.logger import log
 
 class SafePayload(Payload):
     """为了手动检查推送信息的长度，自制一个安全的Payload
