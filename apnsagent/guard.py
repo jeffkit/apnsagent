@@ -13,10 +13,10 @@ from optparse import OptionParser
 from ConfigParser import ConfigParser
 
 from utils import *
-from constants import *
-from notification import *
-from logger import log, create_log
-from webserver import *
+from apnsagent.constants import *
+from apnsagent.notification import *
+from apnsagent.logger import log, create_log
+from apnsagent.webserver import *
 
 import simplejson
 
