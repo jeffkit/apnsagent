@@ -116,7 +116,6 @@ class Notifier(object):
                                   real_message['token']):
             # the token is invalid,do nothing
             return
-        self.rds.hincrby("counter", self.app_key)
         try:
             payload = Payload(sound=sound, badge=badge, alert=alert,
                               custom=custom)
