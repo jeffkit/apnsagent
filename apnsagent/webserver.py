@@ -11,7 +11,7 @@ from apnsagent.guard import *
 
 app = Flask('apnsagent.webserver')
 server = None
-rds = Redis()
+rds = None
 elapsed = time.time()
 
 app.secret_key = 'A0Zr98j/3yX R~XHH!jmN]LWX/,?RT'
@@ -100,7 +100,9 @@ def start_server():
 def start_webserver(serv):
     print 'srarting webserver at the port 5555'
     global server
+    global rds
     server = serv
+    rds = server.rds
     web_daemon = threading.Thread(target=start_server)
     web_daemon.setDaemon(True)
     web_daemon.start()
