@@ -14,9 +14,8 @@ import redis
 import time
 from datetime import datetime
 
-from apnsagent import constants
-from apnsagent.logger import log
-
+import constants
+from logger import log
 
 class SafePayload(Payload):
     """为了手动检查推送信息的长度，自制一个安全的Payload
@@ -33,7 +32,6 @@ class SafePayload(Payload):
         except:
             log.error('payload still Tool long')
 
-
 class Notifier(object):
     def __init__(self, job='push', develop=False, app_key=None,
                  cer_file=None, key_file=None, server_info=None):
@@ -49,35 +47,38 @@ class Notifier(object):
         self.app_key = app_key
         self.cert_file = cer_file
         self.key_file = key_file
-
+        
         self.alive = True
-
+        
         self.last_sent_time = datetime.now()
-
+        
         self.apns = APNs(use_sandbox=self.develop,
                          cert_file=self.cert_file, key_file=self.key_file)
-        if server_info:
-            self.server_info = server_info
-        else:
-            self.server_info = {
-                'host': '127.0.0.1',
-                'post': 6379,
-                'db': 0,
-                'password': ''
-                }
-
+        
+        self.server_info = server_info or {
+            'host': '127.0.0.1',
+            'post': 6379,
+            'db': 0,
+            'password': ''
+            }
+            
     def run(self):
         """
         - 监听redis队列，发送push消息
         - 从apns获取feedback service，处理无效token
         """
+        log.debug('starting a thread')
+        
         self.rds = redis.Redis(**self.server_info)
         if self.job == 'push':
             self.push()
         elif self.job == 'feedback':
             self.feedback()
+            
+        log.debug('leaving a thread')
 
     def log_error(self):
+        self.rds.hincrby("fail_counter", self.app_key)
         log.error('message push fail')
         type, value, tb = sys.exc_info()
         error_message = traceback.format_exception(type, value, tb)
@@ -111,8 +112,8 @@ class Notifier(object):
         custom = real_message.get('custom', {})
 
         if self.rds.sismember('%s:%s' % (constants.INVALID_TOKENS,
-                                         self.app_key),
-                              real_message['token']):
+                                             self.app_key),
+                                  real_message['token']):
             # the token is invalid,do nothing
             return
         try:
@@ -158,7 +159,7 @@ class Notifier(object):
                                                    payload)
         self.last_sent_time = datetime.now()
         self.rds.hincrby("counter", self.app_key)
-
+        
     def resend(self, message):
         log.debug('resending')
         self.reconnect()
@@ -198,16 +199,20 @@ class Notifier(object):
         pubsub.subscribe('%s:%s' % (channel, self.app_key))
         log.debug('subscribe push job channel successfully')
         redis_channel = pubsub.listen()
+        
         for message in redis_channel:
-            if not self.alive:
-                break
-            self.send_message(message)
+            if 'kill' == message['data']:
+              break
+            else:
+              self.send_message(message)
+            
+        log.debug('i am leaving push')
 
     def feedback(self):
         """
         从apns获取feedback,处理无效token
         """
-        while(True):
+        while(self.alive):
             try:
                 for (token, fail_time) in self.apns.feedback_server.items():
                     log.debug('push message fail to send to %s.' % token)
@@ -218,3 +223,5 @@ class Notifier(object):
                 self.log_error()
                 self.reconnect()
             time.sleep(10)
+        
+        log.debug('i am leaving feedback')

@@ -19,7 +19,7 @@ LOG_FORMAT = '[%(asctime)s] %(funcName)s(%(filename)s:%(lineno)s) [%(levelname)s
 log = logging.getLogger()
 log.setLevel(LOG_LEVEL)
 
-def create_log(log_file='/var/log/apnsagent.log'):
+def create_log(log_file='apnsagent.log'):
     global log
     
     formatter = logging.Formatter(LOG_FORMAT)
