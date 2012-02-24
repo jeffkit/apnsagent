@@ -14,7 +14,7 @@ import redis
 import time
 from datetime import datetime
 
-import apnsagent.constants
+from apnsagent import constants
 from apnsagent.logger import log
 
 class SafePayload(Payload):
