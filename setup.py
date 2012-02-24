@@ -16,4 +16,5 @@ setup(name="apnsagent",
       long_description=long_description,
       scripts = ['apnsagent/bin/apnsagent-server.py'],
       packages=['apnsagent']
+      package_data={'apnsagent': ['templates/*.html', 'static/*.*']},
      )
