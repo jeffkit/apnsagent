@@ -2,20 +2,20 @@
 import sys
 import re
 import traceback
-try:
-    import simplejson
-except:
-    from django.utils import simplejson
+
+import simplejson
 from apns import APNs, Payload
 from apns import PayloadTooLargeError
 from ssl import SSLError
 import socket
 import redis
+from redis.exceptions import ConnectionError
 import time
 from datetime import datetime
 
 from apnsagent import constants
 from apnsagent.logger import log
+
 
 class SafePayload(Payload):
     """为了手动检查推送信息的长度，自制一个安全的Payload
@@ -32,6 +32,7 @@ class SafePayload(Payload):
         except:
             log.error('payload still Tool long')
 
+
 class Notifier(object):
     def __init__(self, job='push', develop=False, app_key=None,
                  cer_file=None, key_file=None, server_info=None):
@@ -47,34 +48,36 @@ class Notifier(object):
         self.app_key = app_key
         self.cert_file = cer_file
         self.key_file = key_file
-        
+
         self.alive = True
-        
+        self.retry_time_max = 99  # 如果redis连接断开，重试99次
+        self.retry_time = 0
+
         self.last_sent_time = datetime.now()
-        
+
         self.apns = APNs(use_sandbox=self.develop,
                          cert_file=self.cert_file, key_file=self.key_file)
-        
+
         self.server_info = server_info or {
             'host': '127.0.0.1',
             'post': 6379,
             'db': 0,
             'password': ''
             }
-            
+
     def run(self):
         """
         - 监听redis队列，发送push消息
         - 从apns获取feedback service，处理无效token
         """
         log.debug('starting a thread')
-        
+
         self.rds = redis.Redis(**self.server_info)
         if self.job == 'push':
             self.push()
         elif self.job == 'feedback':
             self.feedback()
-            
+
         log.debug('leaving a thread')
 
     def log_error(self):
@@ -159,7 +162,7 @@ class Notifier(object):
                                                    payload)
         self.last_sent_time = datetime.now()
         self.rds.hincrby("counter", self.app_key)
-        
+
     def resend(self, message):
         log.debug('resending')
         self.reconnect()
@@ -182,6 +185,10 @@ class Notifier(object):
                   if self.develop else \
                   constants.PUSH_JOB_CHANNEL
 
+        self.push_fallback(fallback)
+        self.consume_message(channel)
+
+    def push_fallback(self, fallback):
         log.debug('handle fallback messages')
         old_msg = self.rds.spop('%s:%s' % (fallback, self.app_key))
         while(old_msg):
@@ -194,18 +201,31 @@ class Notifier(object):
             finally:
                 old_msg = self.rds.spop('%s:%s' % (fallback, self.app_key))
 
+    def consume_message(self, channel):
         # 再订阅消息队列
-        pubsub = self.rds.pubsub()
-        pubsub.subscribe('%s:%s' % (channel, self.app_key))
-        log.debug('subscribe push job channel successfully')
-        redis_channel = pubsub.listen()
-        
-        for message in redis_channel:
-            if 'kill' == message['data']:
-              break
+        try:
+            pubsub = self.rds.pubsub()
+            pubsub.subscribe('%s:%s' % (channel, self.app_key))
+            log.debug('subscribe push job channel successfully')
+            redis_channel = pubsub.listen()
+
+            for message in redis_channel:
+                self.retry_time = 0
+                if 'kill' == message['data']:
+                    break
+                else:
+                    self.send_message(message)
+        except:
+            # 连接redis不上, 睡眠几秒钟重试连接
+            if self.retry_time <= self.retry_time_max:
+                time.sleep(10)
+                self.retry_time = self.retry_time + 1
+                log.debug(u'redis cannot connect, retry %d' % self.retry_time)
+                self.consume_message(channel)
             else:
-              self.send_message(message)
-            
+                # 这时，需要Email通知管理员了
+                log.error(u'retry time up, redis gone! help!')
+
         log.debug('i am leaving push')
 
     def feedback(self):
@@ -223,5 +243,5 @@ class Notifier(object):
                 self.log_error()
                 self.reconnect()
             time.sleep(10)
-        
+
         log.debug('i am leaving feedback')
