@@ -9,7 +9,6 @@ from apns import PayloadTooLargeError
 from ssl import SSLError
 import socket
 import redis
-from redis.exceptions import ConnectionError
 import time
 from datetime import datetime
 
@@ -234,6 +233,7 @@ class Notifier(object):
         """
         while(self.alive):
             try:
+                self.reconnect()
                 for (token, fail_time) in self.apns.feedback_server.items():
                     log.debug('push message fail to send to %s.' % token)
                     self.rds.sadd('%s:%s' % (constants.INVALID_TOKENS,
@@ -241,7 +241,6 @@ class Notifier(object):
                                   token)
             except:
                 self.log_error()
-                self.reconnect()
             time.sleep(10)
 
         log.debug('i am leaving feedback')
