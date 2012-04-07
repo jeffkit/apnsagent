@@ -47,9 +47,10 @@ client.register_token(token,develop=True) # 可选，注册一个Token，不注�
 client.push(token,alert,badge,sound,custom) # 发送一条推送消息。
 
 工程依赖
-- apns
-- redis
+- PyAPNs
+- redis-py
 - simplejson
+- flask (for 嵌入式监控web)
 
 监控服务：
 系统运行后，可以打开本地的5555端口，查看系统的运行状态：
