@@ -134,15 +134,20 @@ class PushGuard(object):
         self.watcher.start()
 
     def app_watcher(self):
-        ps = self.rds.pubsub()
-        ps.subscribe("app_watcher")
-        channel = ps.listen()
-        for message in channel:
-            msg = simplejson.loads(message["data"])
-            if(msg["op"] == "stop"):
-                self.stop_worker_thread(msg["app_key"])
-            elif(msg["op"] == "start"):
-                self.start_worker(msg["app_key"])
+        try:
+            ps = self.rds.pubsub()
+            ps.subscribe("app_watcher")
+            channel = ps.listen()
+            for message in channel:
+                msg = simplejson.loads(message["data"])
+                if(msg["op"] == "stop"):
+                    self.stop_worker_thread(msg["app_key"])
+                elif(msg["op"] == "start"):
+                    self.start_worker(msg["app_key"])
+        except:
+            log.error('app_watcher fail,retry.')
+            time.sleep(10)
+            self.app_watcher()
 
     def push(self, develop, app_key, cer_file, key_file, server_info):
         notifier = Notifier('push', develop, app_key,
