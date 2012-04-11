@@ -2,6 +2,8 @@
 
 import redis
 import constants
+import socket
+import time
 try:
     import simplejson
 except:
@@ -19,6 +21,7 @@ class PushClient(object):
         """
         self.app_key = app_key
         self.redis = redis.Redis(**server_info)
+        self._socket = None
 
     def register_token(self, token, user_id=None, develop=False):
         """添加Token到服务器，并标识是何种类型的，测试或生产
@@ -67,7 +70,7 @@ class PushClient(object):
                                               self.app_key))
 
     def push(self, token=None, alert=None, badge=None,
-             sound=None, custom=None):
+             sound=None, custom=None, enhance=False):
         """向推送服务发起推送消息。
         Arguments:
         - `token`:
@@ -78,6 +81,9 @@ class PushClient(object):
         """
         assert token is not None, 'token is reqiured'
 
+        if enhance:
+            self.epush(token, alert, badge, sound, custom)
+            return
         channel, fallback_set = self.get_target(token)
 
         d = {'token': token}
@@ -124,3 +130,49 @@ class PushClient(object):
         """valid app_key
         """
         pass
+
+    ################# enhanced push #################
+
+    def _get_enhance_server(self, token):
+        """返回增强推送服务的信息
+        """
+        is_develop = self.redis.sismember('%s:%s' % (constants.DEBUG_TOKENS,
+                                                     self.app_key), token)
+        port = self.redis.hget('ENHANCE_PORT',
+                               ':'.join((self.app_key,
+                                         'dev' if is_develop else 'pro')
+                                        )
+                               )
+        return 'localhost', int(port)
+
+    def epush(self, token=None, alert=None, badge=None,
+             sound=None, custom=None):
+        """使用Ehanced协议推送，使用socket连接池，
+        """
+        if not self._socket:
+            self._socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            try:
+                self._socket.connect(self._get_enhance_server(token))
+            except socket.error, e:
+                raise e
+
+        try:
+            d = {'token': token}
+            if alert:
+                d['alert'] = alert
+            if badge:
+                d['badge'] = badge
+            if sound:
+                d['sound'] = sound
+            if custom:
+                d['custom'] = custom
+            data = simplejson.dumps(d)
+            self._socket.send(data)
+        except socket.error:
+            print 'socket error when send message'
+            time.sleep(1)
+            self._socket.close()
+            self._socket = None
+            self.epush(token, alert, badge, sound, custom)
+        except:
+            return

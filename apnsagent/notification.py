@@ -8,12 +8,15 @@ from apns import APNs, Payload
 from apns import PayloadTooLargeError
 from ssl import SSLError
 import socket
+import select
 import redis
 import time
+import uuid
 from datetime import datetime
 
 from apnsagent import constants
 from apnsagent.logger import log
+from client import PushClient
 
 
 class SafePayload(Payload):
@@ -64,6 +67,8 @@ class Notifier(object):
             'password': ''
             }
 
+        self.client = PushClient(self.app_key)
+
     def run(self):
         """
         - 监听redis队列，发送push消息
@@ -79,9 +84,9 @@ class Notifier(object):
 
         log.debug('leaving a thread')
 
-    def log_error(self):
+    def log_error(self, message='message push fail'):
         self.rds.hincrby("fail_counter", self.app_key)
-        log.error('message push fail')
+        log.error(message)
         type, value, tb = sys.exc_info()
         error_message = traceback.format_exception(type, value, tb)
         log.debug(type)
@@ -236,11 +241,145 @@ class Notifier(object):
                 self.reconnect()
                 for (token, fail_time) in self.apns.feedback_server.items():
                     log.debug('push message fail to send to %s.' % token)
-                    self.rds.sadd('%s:%s' % (constants.INVALID_TOKENS,
-                                             self.app_key),
-                                  token)
+                    # send a empty msg to confirm the token is valid
+                    self.client.push(token, enhance=True)
             except:
-                self.log_error()
+                self.log_error('get feedback fail')
             time.sleep(10)
 
         log.debug('i am leaving feedback')
+
+
+class EnhanceNotifier(Notifier):
+
+    def run(self):
+        self.rds = redis.Redis(**self.server_info)
+        self.enhance_push()
+
+    def handle_error(self, identifier, errorcode):
+        """处理推送错误
+        """
+        log.debug('apns sent back an error: %s %d', identifier, errorcode)
+        if errorcode == 8:
+            # add token to invalid token set
+            sent = self.rds.smembers('ENHANCE_SENT:%s' % self.app_key)
+            for s in sent:
+                data = simplejson.loads(s)
+                if data['id'] != identifier:
+                    continue
+                token = data['token']
+                self.rds.sadd('%s:%s' % (constants.INVALID_TOKENS,
+                                         self.app_key),
+                              token)
+        else:
+            log.debug('not invalid token, ignore error')
+
+    def send_enhance_message(self, buff):
+        identifier = uuid.uuid4().hex[:4]
+        expiry = int(time.time() + 3600)
+
+        try:
+            data = simplejson.loads(buff)
+            token = data['token']
+            badge = data.get('badge', None)
+            sound = data.get('sound', None)
+            alert = data.get('alert', None)
+            custom = data.get('custom', {})
+            payload = SafePayload(sound=sound, badge=badge, alert=alert,
+                                  custom=custom)
+        except:
+            return
+
+        # 把发送的内容记录下来,记到redis，还得有一个定时器去清除过期的记录。
+        data = simplejson.dumps({'id': identifier,
+                                 'token': token,
+                                 'expiry': expiry})
+        self.rds.sadd('ENHANCE_SENT:%s' % self.app_key, data)
+        self.apns.gateway_server.send_enhance_notification(token, payload,
+                                                           identifier, expiry)
+
+    def enhance_push(self):
+        """
+        使用增强版协议推送消息
+        """
+        self.host = 'localhost'
+        index = self.rds.incr('ENHANCE_THREAD', 1)
+        self.port = 9527 + index - 1
+        self.rds.hset('ENHANCE_PORT',
+                      ':'.join((self.app_key,
+                                'dev' if self.develop else 'pro')),
+                      self.port)
+
+        srv_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        srv_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        srv_sock.bind((self.host, self.port))
+        srv_sock.listen(5)
+        srv_sock.setblocking(0)
+
+        self.apns.gateway_server._connect()
+        cli_sock = self.apns.gateway_server._ssl
+
+        rlist = [srv_sock, cli_sock]
+        wlist = []
+        xlist = []
+
+        while self.alive:
+            rl, wl, xl = select.select(rlist, wlist, xlist, 10)
+            if rl:
+                for r in rl:
+                    if r == srv_sock:
+                        # connection from client!
+                        try:
+                            new_sock, addr = srv_sock.accept()
+                            rlist.append(new_sock)
+                            continue
+                        except socket.error:
+                            pass
+                    elif r == cli_sock:
+                        # message from apns, some error eccour!
+                        error = self.apns.gateway_server.get_error()
+                        if not error:
+                            log.debug('apns drop the connection, reconnect!')
+                            rlist.remove(r)
+                            self.apns.gateway_server._disconnect()
+                            self.apns._gateway_connection = None
+                            continue
+                        else:
+                            self.handle_error(error[0], error[1])
+                    else:
+                        # message from client
+                        buf = ''
+                        try:
+                            buf = r.recv(4096)
+                        except socket.error:
+                            rlist.remove(r)
+                            r.close()
+                            continue
+
+                        if not buf:
+                            # client close the socket.
+                            rlist.remove(r)
+                            r.close()
+                            continue
+
+                        try:
+                            # 如果还没有连接，或闲置时间过长
+                            now = datetime.now()
+                            if not self.apns._gateway_connection:
+                                log.debug('无连接,重连')
+                                self.apns.gateway_server._connect()
+                                cli_sock = self.apns.gateway_server._ssl
+                                rlist.append(cli_sock)
+                            elif (now - self.last_sent_time).seconds > 300:
+                                log.debug('闲置时间过长，重连')
+                                self.apns.gateway_server._disconnect()
+                                self.apns._gateway_connection = None
+                                rlist.remove(cli_sock)
+                                self.apns.gateway_server._connect()
+                                cli_sock = self.apns.gateway_server._ssl
+                                rlist.append(cli_sock)
+                            log.debug('推送消息%s' % buf)
+                            self.send_enhance_message(buf)
+                            self.last_sent_time = now
+                        except socket.error:
+                            log.debug('send notification fail, reconnect')
