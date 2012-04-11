@@ -47,7 +47,7 @@ class PushGuard(object):
         """读取一个目录，遍历下面的app文件夹，每个app启动一到两条线程对此提供服
         务,一条用来发推送，一条用来收feedback
         """
-        self.rds.set('ENHANCE_THREADS', 0)
+        self.rds.set('ENHANCE_THREAD', 0)
         apps = utils.get_apps(self.app_dir)
         self.app_info = {}
 
