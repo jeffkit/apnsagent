@@ -317,7 +317,7 @@ class EnhanceNotifier(Notifier):
         srv_sock.setblocking(0)
 
         self.apns.gateway_server._connect()
-        cli_sock = self.apns.gateway_server._ssl
+        cli_sock = self.apns.gateway_server._socket
 
         rlist = [srv_sock, cli_sock]
         wlist = []
@@ -336,7 +336,7 @@ class EnhanceNotifier(Notifier):
                         except socket.error:
                             pass
                     elif r == cli_sock:
-                        # message from apns, some error eccour!
+                        log.debug('message from apns, some error eccour!')
                         error = self.apns.gateway_server.get_error()
                         if not error:
                             log.debug('apns drop the connection, reconnect!')
@@ -368,7 +368,7 @@ class EnhanceNotifier(Notifier):
                             if not self.apns._gateway_connection:
                                 log.debug('无连接,重连')
                                 self.apns.gateway_server._connect()
-                                cli_sock = self.apns.gateway_server._ssl
+                                cli_sock = self.apns.gateway_server._socket
                                 rlist.append(cli_sock)
                             elif (now - self.last_sent_time).seconds > 300:
                                 log.debug('闲置时间过长，重连')
@@ -376,7 +376,7 @@ class EnhanceNotifier(Notifier):
                                 self.apns._gateway_connection = None
                                 rlist.remove(cli_sock)
                                 self.apns.gateway_server._connect()
-                                cli_sock = self.apns.gateway_server._ssl
+                                cli_sock = self.apns.gateway_server._socket
                                 rlist.append(cli_sock)
                             log.debug('推送消息%s' % buf)
                             self.send_enhance_message(buf)
