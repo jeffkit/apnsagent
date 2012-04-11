@@ -380,5 +380,6 @@ class EnhanceNotifier(Notifier):
                                 rlist.append(cli_sock)
                             log.debug('推送消息%s' % buf)
                             self.send_enhance_message(buf)
+                            self.last_sent_time = now
                         except socket.error:
                             log.debug('send notification fail, reconnect')
