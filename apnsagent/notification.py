@@ -325,10 +325,16 @@ class EnhanceNotifier(Notifier):
 
         while self.alive:
             rl, wl, xl = select.select(rlist, wlist, xlist, 10)
+
+            if xl:
+                for x in xl:
+                    log.error('error occur %s' % x)
+
             if rl:
+                log.debug('data to read')
                 for r in rl:
                     if r == srv_sock:
-                        # connection from client!
+                        log.debug('connection from client!')
                         try:
                             new_sock, addr = srv_sock.accept()
                             rlist.append(new_sock)
@@ -347,7 +353,7 @@ class EnhanceNotifier(Notifier):
                         else:
                             self.handle_error(error[0], error[1])
                     else:
-                        # message from client
+                        log.debug('message from client')
                         buf = ''
                         try:
                             buf = r.recv(4096)
