@@ -356,7 +356,8 @@ class EnhanceNotifier(Notifier):
                         else:
                             self.handle_error(error[0], error[1])
                     else:
-                        log.debug('message from client')
+                        sk = self.apns.gateway_server._ssl
+                        log.debug('message from client,will sent to %s' % sk)
                         buf = ''
                         try:
                             buf = r.recv(4096)
