@@ -47,7 +47,7 @@ client.register_token(token,develop=True) # 可选，注册一个Token，不注�
 client.push(token,alert,badge,sound,custom) # 发送一条推送消息。
 
 工程依赖
-- PyAPNs
+- PyAPNs 使用此版本:https://github.com/jeffkit/apnsagent
 - redis-py
 - simplejson
 - flask (for 嵌入式监控web)
