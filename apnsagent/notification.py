@@ -67,7 +67,7 @@ class Notifier(object):
             'password': ''
             }
 
-        self.client = PushClient(self.app_key, **self.server_info)
+        self.client = PushClient(self.app_key, self.server_info)
 
     def run(self):
         """
