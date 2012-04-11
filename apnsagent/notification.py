@@ -319,6 +319,8 @@ class EnhanceNotifier(Notifier):
         self.apns.gateway_server._connect()
         cli_sock = self.apns.gateway_server._ssl
 
+        log.debug('the apns client socket is : %s' % cli_sock)
+
         rlist = [srv_sock, cli_sock]
         wlist = []
         xlist = []
@@ -331,7 +333,8 @@ class EnhanceNotifier(Notifier):
                     log.error('error occur %s' % x)
 
             if rl:
-                log.debug('data to read')
+                log.debug('data to read %s' % rl)
+                log.debug('rlist: %s' % rlist)
                 for r in rl:
                     if r == srv_sock:
                         log.debug('connection from client!')
