@@ -392,7 +392,7 @@ class EnhanceNotifier(Notifier):
                                 self._reconnect_apns(False)
                             elif (now - self.last_sent_time).seconds > 300:
                                 log.debug('闲置时间过长，重连')
-                                self.reconnect_apns(True)
+                                self._reconnect_apns(True)
                             log.debug('推送消息%s' % buf)
                             self.send_enhance_message(buf)
                             self.last_sent_time = now
