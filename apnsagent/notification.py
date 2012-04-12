@@ -241,12 +241,14 @@ class Notifier(object):
                 self.reconnect()
                 for (token, fail_time) in self.apns.feedback_server.items():
                     log.debug('push message fail to send to %s.' % token)
-                    # send a empty msg to confirm the token is valid
-                    self.client.push(token, enhance=True)
-                    time.sleep(0.01)
+                    # self.client.push(token, enhance=True)
+                    # time.sleep(0.01)
+                    self.rds.sadd('%s:%s' % (constants.INVALID_TOKENS,
+                                             self.app_key),
+                                  token)
             except:
                 self.log_error('get feedback fail')
-            time.sleep(10)
+            time.sleep(60)
 
         log.debug('i am leaving feedback')
 
