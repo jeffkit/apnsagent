@@ -243,6 +243,7 @@ class Notifier(object):
                     log.debug('push message fail to send to %s.' % token)
                     # send a empty msg to confirm the token is valid
                     self.client.push(token, enhance=True)
+                    time.sleep(0.01)
             except:
                 self.log_error('get feedback fail')
             time.sleep(10)
@@ -276,7 +277,8 @@ class EnhanceNotifier(Notifier):
 
     def send_enhance_message(self, buff):
         identifier = uuid.uuid4().hex[:4]
-        expiry = int(time.time() + 3600)
+        #expiry = int(time.time() + 5)
+        expiry = 0
 
         try:
             data = simplejson.loads(buff)
@@ -298,6 +300,16 @@ class EnhanceNotifier(Notifier):
         self.apns.gateway_server.send_enhance_notification(token, payload,
                                                            identifier, expiry)
 
+    def _reconnect_apns(self, clean=False):
+        if clean:
+            self.apns.gateway_server._disconnect()
+            self.apns._gateway_connection = None
+            if self.cli_sock in self.rlist:
+                self.rlist.remove(self.cli_sock)
+        self.apns.gateway_server._connect()
+        self.cli_sock = self.apns.gateway_server._ssl
+        self.rlist.append(self.cli_sock)
+
     def enhance_push(self):
         """
         使用增强版协议推送消息
@@ -317,16 +329,18 @@ class EnhanceNotifier(Notifier):
         srv_sock.setblocking(0)
 
         self.apns.gateway_server._connect()
-        cli_sock = self.apns.gateway_server._ssl
+        self.cli_sock = self.apns.gateway_server._ssl
 
-        log.debug('the apns client socket is : %s' % cli_sock)
+        log.debug('the apns client socket is : %s' % self.cli_sock)
 
-        rlist = [srv_sock, cli_sock]
-        wlist = []
-        xlist = []
+        self.rlist = [srv_sock, self.cli_sock]
+        self.wlist = []
+        self.xlist = []
 
         while self.alive:
-            rl, wl, xl = select.select(rlist, wlist, xlist, 10)
+            rl, wl, xl = select.select(self.rlist,
+                                       self.wlist,
+                                       self.xlist, 10)
 
             if xl:
                 for x in xl:
@@ -334,24 +348,22 @@ class EnhanceNotifier(Notifier):
 
             if rl:
                 log.debug('data to read %s' % rl)
-                log.debug('rlist: %s' % rlist)
+                log.debug('rlist: %s' % self.rlist)
                 for r in rl:
                     if r == srv_sock:
                         log.debug('connection from client!')
                         try:
                             new_sock, addr = srv_sock.accept()
-                            rlist.append(new_sock)
+                            self.rlist.append(new_sock)
                             continue
                         except socket.error:
                             pass
-                    elif r == cli_sock:
+                    elif r == self.cli_sock:
                         log.debug('message from apns, some error eccour!')
                         error = self.apns.gateway_server.get_error()
                         if not error:
                             log.debug('apns drop the connection, reconnect!')
-                            rlist.remove(r)
-                            self.apns.gateway_server._disconnect()
-                            self.apns._gateway_connection = None
+                            self._reconnect_apns(True)
                             continue
                         else:
                             self.handle_error(error[0], error[1])
@@ -362,13 +374,13 @@ class EnhanceNotifier(Notifier):
                         try:
                             buf = r.recv(4096)
                         except socket.error:
-                            rlist.remove(r)
+                            self.rlist.remove(r)
                             r.close()
                             continue
 
                         if not buf:
                             # client close the socket.
-                            rlist.remove(r)
+                            self.rlist.remove(r)
                             r.close()
                             continue
 
@@ -377,19 +389,15 @@ class EnhanceNotifier(Notifier):
                             now = datetime.now()
                             if not self.apns._gateway_connection:
                                 log.debug('无连接,重连')
-                                self.apns.gateway_server._connect()
-                                cli_sock = self.apns.gateway_server._ssl
-                                rlist.append(cli_sock)
+                                self._reconnect_apns(False)
                             elif (now - self.last_sent_time).seconds > 300:
                                 log.debug('闲置时间过长，重连')
-                                self.apns.gateway_server._disconnect()
-                                self.apns._gateway_connection = None
-                                rlist.remove(cli_sock)
-                                self.apns.gateway_server._connect()
-                                cli_sock = self.apns.gateway_server._ssl
-                                rlist.append(cli_sock)
+                                self.reconnect_apns(True)
                             log.debug('推送消息%s' % buf)
                             self.send_enhance_message(buf)
                             self.last_sent_time = now
                         except socket.error:
-                            log.debug('send notification fail, reconnect')
+                            self.log_error('send notification fail, reconnect')
+                            self._reconnect_apns(True)
+                        except:
+                            self.log_error('send notification fail with error')
