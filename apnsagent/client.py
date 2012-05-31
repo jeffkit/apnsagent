@@ -70,7 +70,7 @@ class PushClient(object):
                                               self.app_key))
 
     def push(self, token=None, alert=None, badge=None,
-             sound=None, custom=None, enhance=False):
+             sound=None, custom=None, enhance=False, queue=None):
         """向推送服务发起推送消息。
         Arguments:
         - `token`:
@@ -78,6 +78,7 @@ class PushClient(object):
         - `badge`:
         - `sound`:
         - `custom`:
+        - `queue`: 指定推送的队列，默认由client自己来分配
         """
         assert token is not None, 'token is reqiured'
 
