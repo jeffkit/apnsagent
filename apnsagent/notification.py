@@ -37,7 +37,7 @@ class SafePayload(Payload):
 
 class Notifier(object):
     def __init__(self, job='push', develop=False, app_key=None,
-                 cer_file=None, key_file=None, server_info=None):
+                 cer_file=None, key_file=None, server_info=None, channel=None):
         """
         job = push | feedback
         develop,是否使用sandbox服务器，调试时设为True
@@ -50,6 +50,7 @@ class Notifier(object):
         self.app_key = app_key
         self.cert_file = cer_file
         self.key_file = key_file
+        self.channel = channel
 
         self.alive = True
         self.retry_time_max = 99  # 如果redis连接断开，重试99次
@@ -173,7 +174,6 @@ class Notifier(object):
         self._send_message(message)
 
     def reconnect(self):
-        # TODO disconnect and create a new connection
         self.apns = APNs(use_sandbox=self.develop,
                          cert_file=self.cert_file, key_file=self.key_file)
 
@@ -185,16 +185,24 @@ class Notifier(object):
         fallback = constants.PUSH_JOB_FALLBACK_DEV \
                   if self.develop else \
                   constants.PUSH_JOB_FALLBACK
+
         channel = constants.PUSH_JOB_CHANNEL_DEV \
                   if self.develop else \
                   constants.PUSH_JOB_CHANNEL
+
+        if self.channel:
+            channel = '%s:%s:%s' % (channel, self.app_key, self.channel)
+            fallback = '%s:%s:%s' % (fallback, self.app_key, self.channel)
+        else:
+            channel = '%s:%s' % (channel, self.app_key)
+            fallback = '%s:%s' % (fallback, self.app_key)
 
         self.push_fallback(fallback)
         self.consume_message(channel)
 
     def push_fallback(self, fallback):
-        log.debug('handle fallback messages')
-        old_msg = self.rds.spop('%s:%s' % (fallback, self.app_key))
+        log.debug('handle fallback messages for channel %s' % fallback)
+        old_msg = self.rds.spop(fallback)
         while(old_msg):
             log.debug('handle message:%s' % old_msg)
             try:
@@ -203,14 +211,14 @@ class Notifier(object):
             except:
                 log.debug('message is not a json object')
             finally:
-                old_msg = self.rds.spop('%s:%s' % (fallback, self.app_key))
+                old_msg = self.rds.spop(fallback)
 
     def consume_message(self, channel):
         # 再订阅消息队列
         try:
             pubsub = self.rds.pubsub()
-            pubsub.subscribe('%s:%s' % (channel, self.app_key))
-            log.debug('subscribe push job channel successfully')
+            pubsub.subscribe(channel)
+            log.debug('subscribe push channel %s successfully' % channel)
             redis_channel = pubsub.listen()
 
             for message in redis_channel:

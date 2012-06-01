@@ -4,6 +4,7 @@ DEVELOP_DIR = 'develop'
 PRODUCTION_DIR = 'production'
 CER_FILE = 'cer.pem'
 KEY_FILE = 'key.pem'
+CONF_FILE = 'conf.ini'
 
 PUSH_JOB_CHANNEL = 'push_job'
 PUSH_JOB_FALLBACK = 'push_job_fallback'

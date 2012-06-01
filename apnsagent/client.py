@@ -4,10 +4,7 @@ import redis
 import constants
 import socket
 import time
-try:
-    import simplejson
-except:
-    from django.utils import simplejson
+import simplejson
 
 
 class PushClient(object):
@@ -22,6 +19,17 @@ class PushClient(object):
         self.app_key = app_key
         self.redis = redis.Redis(**server_info)
         self._socket = None
+        self.server_conf = None
+
+    def get_server_conf(self):
+        """获得app对应的推送服务器配置信息
+        """
+        if not self.server_conf:
+            d = {}
+            d['production'] = self.redis.hgetall('config:' + self.app_key)
+            d['develop'] = self.redis.hgetall('config_dev:' + self.app_key)
+            self.server_conf = d
+        return self.server_conf
 
     def register_token(self, token, user_id=None, develop=False):
         """添加Token到服务器，并标识是何种类型的，测试或生产
@@ -44,7 +52,7 @@ class PushClient(object):
                                        self.app_key), token)
         #TODO 为用户ID和token加上关联。
 
-    def get_target(self, token):
+    def get_target(self, token, queue=None):
         """根据Token找到需要推送的目标队列
         Arguments:
         - `self`:
@@ -52,11 +60,31 @@ class PushClient(object):
         """
         is_develop = self.redis.sismember('%s:%s' % (constants.DEBUG_TOKENS,
                                                      self.app_key), token)
-        return ('%s:%s' % (constants.PUSH_JOB_CHANNEL_DEV, self.app_key),
-                '%s:%s' % (constants.PUSH_JOB_FALLBACK_DEV, self.app_key)) \
+        queue = ':%s' % queue if queue else ''
+        if not queue:
+            # 如果不指定队列，那么自动分配到一个队列中
+            if is_develop:
+                config = self.get_server_conf().get('develop', {})
+            else:
+                config = self.get_server_conf().get('production', {})
+            threads = 1
+            try:
+                threads = int(config.get('worker', '1'))
+            except:
+                pass
+
+            if threads > 1:
+                queue = ':%s' % (hash(token) % threads)
+
+                if queue == ':0':
+                    queue = ''
+        return ('%s:%s%s' % (constants.PUSH_JOB_CHANNEL_DEV, self.app_key,
+                             queue),
+                '%s:%s%s' % (constants.PUSH_JOB_FALLBACK_DEV, self.app_key,
+                             queue)) \
                 if is_develop else \
-                ('%s:%s' % (constants.PUSH_JOB_CHANNEL, self.app_key),
-                '%s:%s' % (constants.PUSH_JOB_FALLBACK, self.app_key))
+                ('%s:%s%s' % (constants.PUSH_JOB_CHANNEL, self.app_key, queue),
+                '%s:%s%s' % (constants.PUSH_JOB_FALLBACK, self.app_key, queue))
 
     def sent_message_count(self):
         return self.redis.hget("counter", self.app_key)
@@ -85,7 +113,7 @@ class PushClient(object):
         if enhance:
             self.epush(token, alert, badge, sound, custom)
             return
-        channel, fallback_set = self.get_target(token)
+        channel, fallback_set = self.get_target(token, queue)
 
         d = {'token': token}
         if alert:
@@ -101,11 +129,11 @@ class PushClient(object):
         if not clients:
             self.redis.sadd(fallback_set, payload)  # TODO 加上超时
 
-    def push_batch(self, tokens, alert):
+    def push_batch(self, tokens, alert, queue=None):
         """push message in batch
         """
         token = tokens[0]
-        channel, fallback_set = self.get_target(token)
+        channel, fallback_set = self.get_target(token, queue)
 
         for tk in tokens:
             d = {'token': tk}
@@ -170,7 +198,7 @@ class PushClient(object):
             data = simplejson.dumps(d)
             self._socket.send(data)
         except socket.error:
-            print 'socket error when send message'
+
             time.sleep(1)
             self._socket.close()
             self._socket = None
