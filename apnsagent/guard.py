@@ -54,6 +54,8 @@ class PushGuard(object):
         # 文件夹下面会有production,develop两个子目录，分别放不同的Key及Cert
 
         for app in apps:
+            if app.startswith('.'):
+                continue
             log.debug('getting ready for app : %s' % app)
             app_info = utils.get_app_info(self.app_dir, app)
             self.app_info[app] = app_info
@@ -69,18 +71,20 @@ class PushGuard(object):
 
     def start_worker(self, app):
         log.debug('start an app : %s' % app)
-        app_info = utils.get_app_info(self.app_dir, app)
+        app_info = self.app_info[app]
 
         if 'production' in app_info:
             self.start_worker_thread(app, False,
                                      app_info['production']['cer_file'],
-                                     app_info['production']['key_file'])
+                                     app_info['production']['key_file'],
+                                     app_info['production']['config'])
         if 'develop' in app_info:
             self.start_worker_thread(app, True,
                                      app_info['develop']['cer_file'],
-                                     app_info['develop']['key_file'])
+                                     app_info['develop']['key_file'],
+                                     app_info['develop']['config'])
 
-    def start_worker_thread(self, app, dev, cer_file, key_file):
+    def start_worker_thread(self, app, dev, cer_file, key_file, conf):
         kwargs = {
             'develop': dev,
             'app_key': app,
@@ -88,16 +92,36 @@ class PushGuard(object):
             'key_file': key_file,
             'server_info': self.server_info
         }
+        # 检查配置里关于推送线程数的配置，启动相应数量的推送线程
+        thread_cnt = 1
+        log.debug('startting worker with config : %s' % conf)
+        if conf:
+            conf_prefix = 'config_dev:' if dev else 'config:'
+            self.rds.hmset(conf_prefix + app, conf)
+            try:
+                thread_cnt = int(conf.get('worker', '1'))
+            except:
+                log.warn('invalid config of workers, just start one.')
+        workers = []
+        for cnt in range(thread_cnt):
+            if cnt == 0:
+                params = kwargs
+                worker = threading.Thread(target=self.push, kwargs=params)
+            else:
+                params = kwargs.copy()
+                params.update({'channel': cnt})
+            worker = threading.Thread(target=self.push, kwargs=params)
+            workers.append(worker)
 
-        push_job = threading.Thread(target=self.push, kwargs=kwargs)
         feedback_job = threading.Thread(target=self.feedback, kwargs=kwargs)
         enhance_job = threading.Thread(target=self.enhance, kwargs=kwargs)
 
-        push_job.setDaemon(True)
         feedback_job.setDaemon(True)
         enhance_job.setDaemon(True)
+        for w in workers:
+            w.setDaemon(True)
+            w.start()
 
-        push_job.start()
         feedback_job.start()
         enhance_job.start()
 
@@ -116,6 +140,7 @@ class PushGuard(object):
             self.notifiers[app_key + ":dev:enhance"].alive = False
             del self.notifiers[app_key + ":dev:enhance"]
 
+        # 要看看有多少条推送线程，一条条退出
         if (app_key + ":pro:push") in self.notifiers:
             self.notifiers[app_key + ":pro:push"].alive = False
             self.rds.publish('push_job:%s' % app_key, 'kill')
@@ -150,13 +175,16 @@ class PushGuard(object):
             time.sleep(10)
             self.app_watcher()
 
-    def push(self, develop, app_key, cer_file, key_file, server_info):
+    def push(self, develop, app_key, cer_file, key_file, server_info,
+             channel=None):
         notifier = Notifier('push', develop, app_key,
-                            cer_file, key_file, server_info)
+                            cer_file, key_file, server_info, channel)
+
+        channel = ':%s' % channel if channel else ''
         if develop:
-            self.notifiers[app_key + ":dev:push"] = notifier
+            self.notifiers[app_key + ":dev:push" + channel] = notifier
         else:
-            self.notifiers[app_key + ":pro:push"] = notifier
+            self.notifiers[app_key + ":pro:push" + channel] = notifier
         notifier.run()
 
     def feedback(self, develop, app_key, cer_file, key_file, server_info):

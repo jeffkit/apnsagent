@@ -37,7 +37,7 @@ class SafePayload(Payload):
 
 class Notifier(object):
     def __init__(self, job='push', develop=False, app_key=None,
-                 cer_file=None, key_file=None, server_info=None):
+                 cer_file=None, key_file=None, server_info=None, channel=None):
         """
         job = push | feedback
         develop,是否使用sandbox服务器，调试时设为True
@@ -50,6 +50,7 @@ class Notifier(object):
         self.app_key = app_key
         self.cert_file = cer_file
         self.key_file = key_file
+        self.channel = channel
 
         self.alive = True
         self.retry_time_max = 99  # 如果redis连接断开，重试99次
@@ -173,7 +174,6 @@ class Notifier(object):
         self._send_message(message)
 
     def reconnect(self):
-        # TODO disconnect and create a new connection
         self.apns = APNs(use_sandbox=self.develop,
                          cert_file=self.cert_file, key_file=self.key_file)
 
@@ -185,16 +185,24 @@ class Notifier(object):
         fallback = constants.PUSH_JOB_FALLBACK_DEV \
                   if self.develop else \
                   constants.PUSH_JOB_FALLBACK
+
         channel = constants.PUSH_JOB_CHANNEL_DEV \
                   if self.develop else \
                   constants.PUSH_JOB_CHANNEL
+
+        if self.channel:
+            channel = '%s:%s:%s' % (channel, self.app_key, self.channel)
+            fallback = '%s:%s:%s' % (fallback, self.app_key, self.channel)
+        else:
+            channel = '%s:%s' % (channel, self.app_key)
+            fallback = '%s:%s' % (fallback, self.app_key)
 
         self.push_fallback(fallback)
         self.consume_message(channel)
 
     def push_fallback(self, fallback):
-        log.debug('handle fallback messages')
-        old_msg = self.rds.spop('%s:%s' % (fallback, self.app_key))
+        log.debug('handle fallback messages for channel %s' % fallback)
+        old_msg = self.rds.spop(fallback)
         while(old_msg):
             log.debug('handle message:%s' % old_msg)
             try:
@@ -203,14 +211,14 @@ class Notifier(object):
             except:
                 log.debug('message is not a json object')
             finally:
-                old_msg = self.rds.spop('%s:%s' % (fallback, self.app_key))
+                old_msg = self.rds.spop(fallback)
 
     def consume_message(self, channel):
         # 再订阅消息队列
         try:
             pubsub = self.rds.pubsub()
-            pubsub.subscribe('%s:%s' % (channel, self.app_key))
-            log.debug('subscribe push job channel successfully')
+            pubsub.subscribe(channel)
+            log.debug('subscribe push channel %s successfully' % channel)
             redis_channel = pubsub.listen()
 
             for message in redis_channel:
@@ -232,6 +240,23 @@ class Notifier(object):
 
         log.debug('i am leaving push')
 
+    def handle_bad_token(self, token, fail_time):
+        log.debug('push message fail to send to %s.' % token)
+        # 设置token的失败次数及最后更新时间
+        count = self.rds.hincrby('%s:%s' % (constants.FAIL_TOKEN_COUNT,
+                                  self.app_key), token, 1)
+        if count >= constants.TOKEN_MAX_FAIL_TIME:
+            # 如果token连续失败的次数达到了阀值，放进invalid_tokens
+            self.rds.hdel('%s:%s' % (constants.FAIL_TOKEN_COUNT,
+                                     self.app_key), token)
+            self.rds.hdel('%s:%s' % (constants.FAIL_TOKEN_TIME,
+                                     self.app_key), token)
+            self.rds.sadd('%s:%s' % (constants.INVALID_TOKENS,
+                                     self.app_key), token)
+        else:
+            self.rds.hset('%s:%s' % (constants.FAIL_TOKEN_TIME,
+                                     self.app_key), token, fail_time)
+
     def feedback(self):
         """
         从apns获取feedback,处理无效token
@@ -240,12 +265,7 @@ class Notifier(object):
             try:
                 self.reconnect()
                 for (token, fail_time) in self.apns.feedback_server.items():
-                    log.debug('push message fail to send to %s.' % token)
-                    # self.client.push(token, enhance=True)
-                    # time.sleep(0.01)
-                    self.rds.sadd('%s:%s' % (constants.INVALID_TOKENS,
-                                             self.app_key),
-                                  token)
+                    self.handle_bad_token(token, fail_time)
             except:
                 self.log_error('get feedback fail')
             time.sleep(60)

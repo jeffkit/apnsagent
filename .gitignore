@@ -6,3 +6,4 @@
 build
 dist
 apnsagent.egg-info
+.ropeproject
