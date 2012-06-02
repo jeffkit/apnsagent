@@ -240,6 +240,23 @@ class Notifier(object):
 
         log.debug('i am leaving push')
 
+    def handle_bad_token(self, token, fail_time):
+        log.debug('push message fail to send to %s.' % token)
+        # 设置token的失败次数及最后更新时间
+        count = self.rds.hincrby('%s:%s' % (constants.FAIL_TOKEN_COUNT,
+                                  self.app_key), token, 1)
+        if count >= constants.TOKEN_MAX_FAIL_TIME:
+            # 如果token连续失败的次数达到了阀值，放进invalid_tokens
+            self.rds.hdel('%s:%s' % (constants.FAIL_TOKEN_COUNT,
+                                     self.app_key), token)
+            self.rds.hdel('%s:%s' % (constants.FAIL_TOKEN_TIME,
+                                     self.app_key), token)
+            self.rds.sadd('%s:%s' % (constants.INVALID_TOKENS,
+                                     self.app_key), token)
+        else:
+            self.rds.hset('%s:%s' % (constants.FAIL_TOKEN_TIME,
+                                     self.app_key), token, fail_time)
+
     def feedback(self):
         """
         从apns获取feedback,处理无效token
@@ -248,12 +265,7 @@ class Notifier(object):
             try:
                 self.reconnect()
                 for (token, fail_time) in self.apns.feedback_server.items():
-                    log.debug('push message fail to send to %s.' % token)
-                    # self.client.push(token, enhance=True)
-                    # time.sleep(0.01)
-                    self.rds.sadd('%s:%s' % (constants.INVALID_TOKENS,
-                                             self.app_key),
-                                  token)
+                    self.handle_bad_token(token, fail_time)
             except:
                 self.log_error('get feedback fail')
             time.sleep(60)
