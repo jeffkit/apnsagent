@@ -38,7 +38,7 @@ INVALID_TOKENS = 'invalid_tokens'
 FAIL_TOKEN_TIME = 'fail_token_time'
 
 # 推送发生错误的token及其错误次数
-FAIL_TOKEN_COUNT = 'fail_token_time'
+FAIL_TOKEN_COUNT = 'fail_token_count'
 
 # token最大失败次数
 TOKEN_MAX_FAIL_TIME = 5

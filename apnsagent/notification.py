@@ -245,8 +245,10 @@ class Notifier(object):
         # 设置token的失败次数及最后更新时间
         count = self.rds.hincrby('%s:%s' % (constants.FAIL_TOKEN_COUNT,
                                   self.app_key), token, 1)
+        log.debug('fail count: %s' % count)
         if count >= constants.TOKEN_MAX_FAIL_TIME:
             # 如果token连续失败的次数达到了阀值，放进invalid_tokens
+            log.debug('fail count access limit, die hard!')
             self.rds.hdel('%s:%s' % (constants.FAIL_TOKEN_COUNT,
                                      self.app_key), token)
             self.rds.hdel('%s:%s' % (constants.FAIL_TOKEN_TIME,
