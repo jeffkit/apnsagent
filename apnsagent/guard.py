@@ -165,6 +165,7 @@ class PushGuard(object):
             ps.subscribe("app_watcher")
             channel = ps.listen()
             for message in channel:
+                log.debug('got message from app_watcher %s' % message)
                 msg = simplejson.loads(message["data"])
                 if(msg["op"] == "stop"):
                     self.stop_worker_thread(msg["app_key"])
