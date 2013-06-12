@@ -164,7 +164,7 @@ class PushGuard(object):
             ps = self.rds.pubsub()
             ps.subscribe("app_watcher")
             channel = ps.listen()
-            for message in channel:
+            for message in channel is message['type'] == 'message':
                 log.debug('got message from app_watcher %s' % message)
                 msg = simplejson.loads(message["data"])
                 if(msg["op"] == "stop"):
