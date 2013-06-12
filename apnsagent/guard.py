@@ -171,7 +171,7 @@ class PushGuard(object):
                 elif(msg["op"] == "start"):
                     self.start_worker(msg["app_key"])
         except:
-            log.error('app_watcher fail,retry.')
+            log.error('app_watcher fail,retry.', exc_info=True)
             time.sleep(10)
             self.app_watcher()
 
