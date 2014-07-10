@@ -269,7 +269,7 @@ class Notifier(object):
                 for (token, fail_time) in self.apns.feedback_server.items():
                     self.handle_bad_token(token, fail_time)
             except:
-                self.log_error('get feedback fail')
+                self.log_error('get feedback fail %s' % self.app_key)
             time.sleep(60)
 
         log.debug('i am leaving feedback')
